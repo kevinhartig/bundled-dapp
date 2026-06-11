@@ -1,51 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app) that has been configured to work as a bundled DApp for Signet.
+# Signet DApp Starter
+
+A minimal reference implementation of a React application bundled as a [Signet](https://github.com/kevinhartig/signet) DApp. Use this as a starting point for building your own Signet DApp.
+
+## What This Is
+
+This project demonstrates the complete pattern for a bundled Signet DApp:
+
+- A React app built with Next.js, used for local development and hot-reloading
+- An `init(container, secureInterface)` function that Signet calls to mount the DApp
+- A `prepare-bundle.js` script that builds a self-contained bundle (`dist/index.bundle.js`) from `init.tsx` using esbuild
+- A mock Signet security interface in `page.tsx` for testing locally without a real Signet host
+
+## Project Structure
+
+```
+src/app/
+  init.tsx          # DApp entry point — the init() function Signet calls
+  page.tsx          # Next.js dev page with mock Signet security interface
+  global.ts         # Ensures window.DApp is set when the Next.js bundle loads
+  components/
+    DAppExport.tsx  # React component that keeps init() in the Next.js bundle
+
+scripts/
+  prepare-bundle.js # esbuild script that produces dist/index.bundle.js
+
+dist/               # Bundle output (deploy these to the Signet marketplace)
+  index.bundle.js
+  index.css
+
+manifest.json       # Signet DApp manifest
+docs/               # Reference documentation
+```
 
 ## Getting Started
 
-### Development Mode
-
-To run the app in development mode:
+Install dependencies:
 
 ```bash
-npm run dev
-# or
+yarn install
+```
+
+### Local Development
+
+Run the Next.js dev server with a mock Signet security interface:
+
+```bash
 yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). The DApp renders in a mock container with a simulated `secureInterface`. By default the mock is enabled; append `?mock=0` to disable it.
 
-### Bundled DApp Mode
+### Building the DApp Bundle
 
-To build the app as a bundled DApp for Signet:
+Produce the deployable bundle in `dist/`:
 
 ```bash
-npm run bundle
+yarn bundle
 ```
 
-This will create a bundled version in the `dist` directory that can be loaded by Signet.
+This runs esbuild directly on `src/app/init.tsx` and outputs:
+- `dist/index.bundle.js` — the DApp bundle (React/ReactDOM are external, loaded by Signet)
+- `dist/index.css` — CSS file (required by the manifest; this project uses inline styles)
 
-For more information on using this app as a bundled DApp, see [BUNDLED_DAPP_GUIDE.md](./BUNDLED_DAPP_GUIDE.md).
+## How It Works
 
-## Key Features
+Signet loads the bundle, then calls:
 
-- **Signet Integration**: The app includes an `init` function that accepts a container and securityInterface object
-- **Turbopack Integration**: Next.js with Turbopack for fast builds and bundling
-- **Shadow DOM for CSS**: CSS styling is contained within a Shadow DOM for style isolation
-- **Enhanced Bundling**: Automatic CSS extraction, tree shaking, code splitting, and TypeScript support
-- **Manifest Configuration**: Properly configured manifest.json for Signet integration
+```js
+window.DApp.init(container, secureInterface)
+```
 
-## Learn More
+`container` is the DOM element Signet has prepared for the DApp. `secureInterface` is the [Signet secure interface object](./docs/Signet%20DApp%20Security%20Interface.md) providing access to profile data, wallet operations, and runtime parameters. The `init` function returns a cleanup function that Signet calls when the DApp is closed.
 
-To learn more about Next.js, take a look at the following resources:
+The `globalExport: "DApp"` field in `manifest.json` tells Signet the name of the global variable to look for.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploying to Signet
 
-To learn more about Signet DApp integration:
+1. Run `yarn bundle` to produce `dist/index.bundle.js` and `dist/index.css`
+2. Copy `dist/`, `manifest.json`, and any other public assets to your deployment location in the [Signet Marketplace](https://github.com/kevinhartig/marketplace-app)
+3. Update `manifestUrl` in `manifest.json` to the public URL where the manifest will be served
 
-- [Bundled DApp Support](./docs/Bundled%20DApp%20Support.md) - learn about bundled DApp support in Signet
-- [Signet DApp Security Interface](./docs/Signet%20DApp%20Security%20Interface.md) - learn about the security interface
+## Documentation
+
+- [Bundled DApp Support](./docs/Bundled%20DApp%20Support.md) — manifest configuration, bundling, CSS scoping, loading order
+- [Signet DApp Security Interface](./docs/Signet%20DApp%20Security%20Interface.md) — full API reference for the `secureInterface` object

@@ -15,8 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "React DApp",
+  title: "Signet DApp",
   description: "Generate React components for your Signet DApps",
+  icons: { icon: "/favicon.png" },
 };
 
 export default function RootLayout({

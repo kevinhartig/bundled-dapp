@@ -24,7 +24,7 @@ interface DAppSecurityContext {
 Defines what actions a DApp is allowed to perform.
 ``` typescript
 interface DAppPermission {
-  type: 'profile:read' | 'profile:write' | 'wallet:access' | 'dapp:communicate';
+  type: 'profile:read' | 'profile:write' | 'wallet:access' | 'wallet:sign' | 'dapp:communicate';
   granted: boolean;
   grantedAt: number;
 }
@@ -45,7 +45,9 @@ interface DAppMessage {
 ### Profile Access Methods
 #### `getProfileDid(): Promise<string>`
 Returns the Profile's DID (Decentralized Identifier).
+
 **Required Permission**: `profile:read` (granted by default)
+
 **Example**:
 ``` javascript
 const did = await secureInterface.getProfileDid();
@@ -53,7 +55,9 @@ console.log('Profile DID:', did);
 ```
 #### `getWalletAccess(): Promise<string>`
 Returns the Profile's wallet public address.
+
 **Required Permission**: `wallet:access`
+
 **Example**:
 ``` javascript
 try {
@@ -63,17 +67,57 @@ try {
   console.error('Permission denied for wallet access');
 }
 ```
+### Wallet Methods
+#### `signMessage(message: string): Promise<string>`
+Signs an arbitrary message using the Profile's wallet key via EIP-191 `personal_sign`.
+
+**Required Permission**: `wallet:sign`
+
+**Returns**: A 0x-prefixed 65-byte ECDSA signature string. The signature is deterministic — the same wallet and message always produce the same result.
+
+**Behavior**: Signet shows a confirmation dialog displaying the full message text before signing. The user must approve each signing request.
+
+**Example**:
+``` javascript
+try {
+  const signature = await secureInterface.signMessage('Hello from my DApp');
+  console.log('Signature:', signature);
+} catch (error) {
+  console.error('Signing failed or was denied');
+}
+```
+### Parameters Methods
+#### `getParameters(): Promise<Record<string, unknown>>`
+Retrieves the runtime parameters configured for this DApp by the Signet tenant. Parameters are declared in the DApp's `manifest.json` under the `parameters` key and resolved server-side before the DApp launches.
+
+**Required Permission**: none (always available)
+
+**Returns**: An object containing the resolved parameter values. Secure parameters (marked `"secure": true` in the manifest) are included only when the DApp is running in a trusted Signet context.
+
+**Example**:
+``` javascript
+const params = await secureInterface.getParameters();
+const { apiBaseUrl, apiToken } = params;
+console.log('API base URL:', apiBaseUrl);
+```
+
+For more on declaring parameters in your manifest, see [Bundled DApp Support](./Bundled%20DApp%20Support.md).
+
 ### Communication Methods
 #### `getCommunicationChannel(): DAppCommunicationChannel`
 Returns a communication channel for inter-DApp messaging.
-**Required Permission**: `dapp:communicate`
+
+**Required Permission**: `dapp:communicate` (granted by default)
+
 **Returns**: DAppCommunicationChannel object with methods:
 ##### `subscribe(callback: (message: DAppMessage) => void): () => void`
 Subscribe to incoming messages from other DApps.
+
 **Parameters**:
 - `callback`: Function to handle incoming messages
 
 **Returns**: Unsubscribe function
+
 **Example**:
 ``` javascript
 const channel = secureInterface.getCommunicationChannel();
@@ -86,10 +130,12 @@ unsubscribe();
 ```
 ##### `broadcast(payload: any): Promise<boolean>`
 Send a message to all running DApps under the same Profile.
+
 **Parameters**:
 - `payload`: Data to broadcast
 
 **Returns**: Success status
+
 **Example**:
 ``` javascript
 await channel.broadcast({
@@ -99,11 +145,13 @@ await channel.broadcast({
 ```
 ##### `sendDirect(targetDApp: string, payload: any): Promise<boolean>`
 Send a direct message to a specific DApp.
+
 **Parameters**:
 - `targetDApp`: UUID of the target DApp
 - `payload`: Data to send
 
 **Returns**: Success status
+
 **Example**:
 ``` javascript
 await channel.sendDirect('target-dapp-uuid', {
@@ -114,15 +162,17 @@ await channel.sendDirect('target-dapp-uuid', {
 ### Permission Management
 #### `requestPermissions(permissions: string[]): Promise<DAppPermission[]>`
 Request additional permissions from the user.
+
 **Parameters**:
 - `permissions`: Array of permission types to request
 
 **Returns**: Array of permission results
+
 **Example**:
 ``` javascript
 const newPermissions = await secureInterface.requestPermissions([
   'wallet:access',
-  'dapp:communicate'
+  'wallet:sign'
 ]);
 
 newPermissions.forEach(permission => {
@@ -131,7 +181,9 @@ newPermissions.forEach(permission => {
 ```
 #### `getPermissions(): DAppPermission[]`
 Get currently granted permissions.
+
 **Returns**: Array of current permissions
+
 **Example**:
 ``` javascript
 const permissions = secureInterface.getPermissions();
@@ -142,7 +194,9 @@ const hasWalletAccess = permissions.some(p =>
 ### Session Management
 #### `getSessionId(): string`
 Get the current session identifier.
+
 **Returns**: Unique session ID
+
 **Example**:
 ``` javascript
 const sessionId = secureInterface.getSessionId();
@@ -150,7 +204,9 @@ console.log('Session ID:', sessionId);
 ```
 #### `validateSession(): Promise<boolean>`
 Validate that the current session is still active.
+
 **Returns**: Session validity status
+
 **Example**:
 ``` javascript
 const isValid = await secureInterface.validateSession();
@@ -160,35 +216,37 @@ if (!isValid) {
 ```
 ## Permission Types
 ### Default Permissions
-- **`profile:read`**: Read access to basic profile information (granted by default)
+These permissions are granted automatically when the DApp launches:
+- **`profile:read`**: Read access to basic profile information (DID)
+- **`dapp:communicate`**: Ability to send and receive messages with other DApps
 
 ### Requestable Permissions
+These require an explicit user approval dialog:
 - **`wallet:access`**: Access to the Profile's wallet address
-- **`dapp:communicate`**: Ability to send and receive messages with other DApps
-- **`profile:write`**: Write access to profile data (requires explicit user consent)
+- **`wallet:sign`**: Sign messages with the Profile's wallet key (EIP-191 personal_sign). Each signing operation also requires individual user confirmation.
+- **`profile:write`**: Write access to profile data
 
 ## DApp Development Guide
 ### Basic DApp Structure
-Every DApp must export an function that receives the container element and secure interface: `init`
-``` javascript
-export async function init(container, secureInterface) {
+Every DApp must export an `init` function that receives the container element and secure interface:
+``` typescript
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+
+export async function init(container: HTMLElement, secureInterface: SecureInterface | null) {
   try {
-    // Initialize your DApp here
-    const did = await secureInterface.getProfileDid();
+    const root = createRoot(container);
 
-    // Create UI
-    container.innerHTML = `
-      <div>
-        <h2>My DApp</h2>
-        <p>Profile DID: ${did}</p>
-      </div>
-    `;
+    root.render(
+      <React.StrictMode>
+        <App secureInterface={secureInterface} />
+      </React.StrictMode>
+    );
 
-    // Set up event handlers, communication, etc.
+    return () => root.unmount();
 
   } catch (error) {
     console.error('DApp initialization failed:', error);
-    // Handle error appropriately
   }
 }
 ```
@@ -200,25 +258,49 @@ Signet supports two types of DApps:
 2. **Bundled DApps**: Multi-file applications (like React apps) that are bundled and expose an `init` function via a global variable.
 
 For detailed information on creating bundled DApps, see [Bundled DApp Support](./Bundled%20DApp%20Support.md).
-### Requesting Permissions
-Always request permissions before attempting to access protected resources:
-``` javascript
-export async function init(container, secureInterface) {
-  // Request necessary permissions
-  await secureInterface.requestPermissions([
-    'wallet:access',
-    'dapp:communicate'
-  ]);
 
-  // Check if permissions were granted
-  const permissions = secureInterface.getPermissions();
-  const canAccessWallet = permissions.some(p =>
-    p.type === 'wallet:access' && p.granted
+### Accessing Runtime Parameters
+Request parameters before mounting your UI:
+``` typescript
+export async function init(container: HTMLElement, secureInterface: SecureInterface | null) {
+  let params: Record<string, unknown> = {};
+
+  if (secureInterface) {
+    params = await secureInterface.getParameters();
+  }
+
+  const root = createRoot(container);
+  root.render(
+    <React.StrictMode>
+      <App secureInterface={secureInterface} params={params} />
+    </React.StrictMode>
   );
 
-  if (canAccessWallet) {
-    const walletAddress = await secureInterface.getWalletAccess();
-    // Use wallet address
+  return () => root.unmount();
+}
+```
+
+### Requesting Permissions
+Always request permissions before attempting to access protected resources:
+``` typescript
+export async function init(container: HTMLElement, secureInterface: SecureInterface | null) {
+  if (secureInterface) {
+    // Request necessary permissions
+    await secureInterface.requestPermissions([
+      'wallet:access',
+      'wallet:sign'
+    ]);
+
+    // Check if permissions were granted
+    const permissions = secureInterface.getPermissions();
+    const canAccessWallet = permissions.some(p =>
+      p.type === 'wallet:access' && p.granted
+    );
+
+    if (canAccessWallet) {
+      const walletAddress = await secureInterface.getWalletAccess();
+      // Use wallet address
+    }
   }
 }
 ```
@@ -246,7 +328,7 @@ export async function init(container, secureInterface) {
     timestamp: Date.now()
   });
 
-  // Return cleanup function (optional)
+  // Return cleanup function
   return () => {
     unsubscribe();
   };
@@ -257,7 +339,7 @@ Always implement proper error handling for permission-related operations:
 ``` javascript
 async function accessWallet(secureInterface) {
   try {
-    const address = await secureInterface.getWalletAcess();
+    const address = await secureInterface.getWalletAccess();
     return address;
   } catch (error) {
     if (error.message.includes('Permission denied')) {
@@ -272,13 +354,15 @@ async function accessWallet(secureInterface) {
 ```
 ## Security Considerations
 ### Sandboxing
-- Each DApp runs in its own security context
-- DApps cannot access data from other DApps directly
+- Each DApp runs in its own security context with a unique session ID
+- DApps share the same DOM but cannot access each other's data directly
 - All inter-DApp communication goes through the secure messaging system
+- DApps have access to `window`, `document`, and other browser globals — use defensively
 
 ### Permission Model
 - Permissions are granted per session
-- Sensitive permissions require explicit user consent
+- Sensitive permissions (`wallet:access`, `wallet:sign`, `profile:write`) require explicit user consent via a dialog
+- Each `signMessage()` call requires individual user approval, even if `wallet:sign` is already granted
 - Permissions can be revoked at any time
 
 ### Data Privacy
@@ -293,47 +377,68 @@ async function accessWallet(secureInterface) {
 
 ## Integration Examples
 ### Simple Profile Display DApp
-``` javascript
-export async function init(container, secureInterface) {
-  const did = await secureInterface.getProfileDid();
+``` typescript
+import React from 'react';
+import { createRoot } from 'react-dom/client';
 
-  container.innerHTML = `
-    <div style="padding: 20px;">
-      <h2>Profile Viewer</h2>
-      <p><strong>DID:</strong> ${did}</p>
-    </div>
-  `;
+export function init(container: HTMLElement, secureInterface: any) {
+  const root = createRoot(container);
+
+  async function ProfileDisplay() {
+    const did = secureInterface ? await secureInterface.getProfileDid() : 'N/A';
+    return (
+      <div style={{ padding: '20px' }}>
+        <h2>Profile Viewer</h2>
+        <p><strong>DID:</strong> {did}</p>
+      </div>
+    );
+  }
+
+  root.render(<React.StrictMode><ProfileDisplay /></React.StrictMode>);
+  return () => root.unmount();
 }
 ```
 ### Wallet Integration DApp
-``` javascript
-export async function init(container, secureInterface) {
-  // Request wallet access
-  await secureInterface.requestPermissions(['wallet:access']);
+``` typescript
+import React, { useState, useEffect } from 'react';
+import { createRoot } from 'react-dom/client';
 
-  try {
-    const walletAddress = await secureInterface.getWalletAccess();
+function WalletApp({ secureInterface }: { secureInterface: any }) {
+  const [address, setAddress] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-    container.innerHTML = `
-      <div style="padding: 20px;">
-        <h2>Wallet Manager</h2>
-        <p><strong>Address:</strong> ${walletAccess}</p>
-        <button id="check-balance">Check Balance</button>
-      </div>
-    `;
+  useEffect(() => {
+    if (!secureInterface) return;
+    secureInterface.requestPermissions(['wallet:access'])
+      .then(() => secureInterface.getWalletAccess())
+      .then(setAddress)
+      .catch(() => setError('Wallet access was denied.'));
+  }, [secureInterface]);
 
-    document.getElementById('check-balance').addEventListener('click', () => {
-      // Implement balance checking logic
-    });
+  if (error) return <div style={{ padding: '20px', color: 'red' }}>{error}</div>;
 
-  } catch (error) {
-    container.innerHTML = `
-      <div style="padding: 20px; color: red;">
-        <h2>Access Denied</h2>
-        <p>This DApp requires wallet access to function.</p>
-      </div>
-    `;
-  }
+  return (
+    <div style={{ padding: '20px' }}>
+      <h2>Wallet Manager</h2>
+      <p><strong>Address:</strong> {address ?? 'Loading...'}</p>
+      <button onClick={async () => {
+        try {
+          const sig = await secureInterface.signMessage('Authenticate with my DApp');
+          alert(`Signature: ${sig}`);
+        } catch {
+          alert('Signing was denied.');
+        }
+      }}>
+        Sign Message
+      </button>
+    </div>
+  );
+}
+
+export function init(container: HTMLElement, secureInterface: any) {
+  const root = createRoot(container);
+  root.render(<React.StrictMode><WalletApp secureInterface={secureInterface} /></React.StrictMode>);
+  return () => root.unmount();
 }
 ```
 ### Communication Hub DApp
@@ -355,7 +460,7 @@ export async function init(container, secureInterface) {
   const messagesDiv = document.getElementById('messages');
 
   // Subscribe to messages
-  channel.subscribe((message) => {
+  const unsubscribe = channel.subscribe((message) => {
     const messageEl = document.createElement('div');
     messageEl.innerHTML = `<strong>${message.from}:</strong> ${JSON.stringify(message.payload)}`;
     messagesDiv.appendChild(messageEl);
@@ -367,31 +472,39 @@ export async function init(container, secureInterface) {
     await channel.broadcast({ text: messageText });
     document.getElementById('message').value = '';
   });
+
+  return () => unsubscribe();
 }
 ```
 ## Best Practices
 1. **Always request permissions before accessing protected resources**
-2. **Implement proper error handling for permission-denied scenarios**
-3. **Clean up resources and unsubscribe from channels when appropriate**
-4. **Use meaningful message types for inter-DApp communication**
-5. **Validate session status for long-running operations**
-6. **Handle permission changes gracefully**
-7. **Provide clear user feedback when permissions are required**
+2. **Call `getParameters()` early in `init` before rendering**
+3. **Implement proper error handling for permission-denied scenarios**
+4. **Clean up resources and unsubscribe from channels in the cleanup function**
+5. **Use meaningful message types for inter-DApp communication**
+6. **Validate session status for long-running operations**
+7. **Handle permission changes gracefully**
+8. **Provide clear user feedback when permissions are required or denied**
+9. **Request `wallet:sign` only when needed** — each signing call shows a user dialog
 
 ## Troubleshooting
 ### Common Issues
 **Permission Denied Errors**
-- Ensure you've requested the required permissions
-- Check that permissions were actually granted by the user
+- Ensure you've called `requestPermissions` before accessing the protected resource
+- Check `getPermissions()` to confirm the permission was actually granted
+
+**`getParameters()` returns empty or missing values**
+- Verify your manifest declares the parameters in the `parameters` section
+- Confirm the Signet tenant has configured values for those parameters
 
 **Communication Not Working**
-- Verify that `dapp:communicate` permission is granted
-- Check that target DApps are actually running
+- Verify that `dapp:communicate` permission is granted (it is by default, but check it wasn't revoked)
+- Check that target DApps are running
 
 **Session Invalid**
 - Sessions expire when DApps are closed
-- Always validate session status for critical operations
+- Call `validateSession()` before critical operations in long-running DApps
 
 **Missing Secure Interface**
-- Ensure your DApp's function accepts the `secureInterface` parameter `init`
-- Verify the DApp is being loaded through the Signet security system
+- Ensure your `init` function accepts the `secureInterface` parameter
+- When testing locally, use a mock security interface (see the `page.tsx` dev page in this project)
